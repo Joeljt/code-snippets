@@ -1,0 +1,10 @@
+FROM rabbitmq:4.0.7-management
+
+# 与 Broker 4.0.7 小版本对齐，避免插件/节点版本不匹配导致启动失败
+ARG DELAYED_PLUGIN_VERSION=4.0.7
+RUN apt-get update && apt-get install -y --no-install-recommends curl \
+    && curl -fsSL \
+      "https://github.com/rabbitmq/rabbitmq-delayed-message-exchange/releases/download/v${DELAYED_PLUGIN_VERSION}/rabbitmq_delayed_message_exchange-v${DELAYED_PLUGIN_VERSION}.ez" \
+      -o "/opt/rabbitmq/plugins/rabbitmq_delayed_message_exchange-${DELAYED_PLUGIN_VERSION}.ez" \
+    && rabbitmq-plugins enable --offline rabbitmq_delayed_message_exchange \
+    && apt-get purge -y curl && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*

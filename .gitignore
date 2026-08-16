@@ -139,6 +139,13 @@ celerybeat.pid
 # RabbitMQ
 mnesia/
 rabbitmq-data/
+rabbitmq/order-demo/order-demo.sqlite
+rabbitmq/order-demo/.workers.pids
+rabbitmq/order-demo/logs/
+rabbitmq/order-demo/full/order-demo.sqlite
+rabbitmq/order-demo/full/.workers.pids
+rabbitmq/order-demo/full/logs/
+rabbitmq/order-demo/stages/**/*.sqlite
 
 # ActiveMQ
 activemq-data/
