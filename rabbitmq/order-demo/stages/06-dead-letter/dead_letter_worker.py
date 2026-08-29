@@ -6,7 +6,9 @@ from topology import Q_DEAD, declare_topology
 
 
 def on_message(ch, method, props, body):
-    print(f"[DLX] body={body.decode()}  x-death={json.dumps((props.headers or {}).get('x-death'), ensure_ascii=False)}")
+    x_death = (props.headers or {}).get("x-death")
+    # x-death 里含 datetime，不能直接 json.dumps
+    print(f"[DLX] body={body.decode()}  x-death={json.dumps(x_death, ensure_ascii=False, default=str)}")
     ch.basic_ack(method.delivery_tag)
 
 

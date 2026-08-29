@@ -22,7 +22,7 @@ def main():
     conn = pika.BlockingConnection(pika.ConnectionParameters("localhost"))
     ch = conn.channel()
     declare_topology(ch)
-    ch.basic_qos(10)
+    ch.basic_qos(prefetch_count=10)
     ch.basic_consume(Q_DEDUCT, lambda ch, m, p, b: on_message(ch, m, p, b, args.poison), auto_ack=False)
     print(f"[*] inventory_worker poison={args.poison}")
     ch.start_consuming()
