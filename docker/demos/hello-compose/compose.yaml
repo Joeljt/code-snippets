@@ -1,22 +1,22 @@
-# 把以前一长串 docker run / network / volume 收成一份声明
 services:
   web:
-    build: ../hello-dockerfile          # 用上一阶段的 Dockerfile
+    build: ../hello-dockerfile
     ports:
-      - "8000:8000"                     # 宿主机:容器
+      - "8000:8000"
     environment:
       PORT: "8000"
-    # Compose 会把同文件内的服务放进同一默认网络，
-    # 因此这里将来可以用主机名 "redis" 访问下面的服务
+      REDIS_HOST: redis          # 服务名 DNS，不是 localhost
+      REDIS_PORT: "6379"
+    depends_on:
+      - redis
+    restart: unless-stopped
 
   redis:
     image: redis:7-alpine
     volumes:
       - redis-data:/data
-    # 容器间互通不需要 ports；若本机也要 redis-cli，可加：
-    # ports:
-    #   - "6379:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+    restart: unless-stopped
 
 volumes:
   redis-data:
-    # external: true # 表示从宿主机上直接找建好的卷，否则会创建一个新卷，名称为：项目名_redis-data
