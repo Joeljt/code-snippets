@@ -13,9 +13,11 @@ docker/
 │   ├── 01-image-and-container-basics.md # 镜像与容器基石（生命周期、Tag策略、Alpine原理、选型）
 │   ├── 02-storage-and-volumes.md       # 存储与持久化（命名卷 vs Bind、匿名卷、落盘与容器生命周期）
 │   ├── 03-container-networking.md      # 容器网络（端口映射、-p 内外端口、自定义网络、bridge 类比）
-│   ├── 04-dockerfile-and-images.md     # 【下一阶段】镜像构建（Dockerfile、分层缓存、多阶段构建）
-│   └── 05-docker-compose.md            # 多服务编排（Compose 语法、网络/卷声明、一键环境搭建）
-└── demos/                              # 实战靶场（配合各阶段的小型验证项目）
+│   ├── 04-dockerfile-and-images.md     # 镜像构建（指令手册、ENTRYPOINT/CMD、分层缓存）
+│   └── 05-docker-compose.md            # 多服务编排（项目/服务、网络卷、external、常用命令）
+└── demos/
+    ├── hello-dockerfile/               # 阶段 4：最小 Python 服务 + Dockerfile
+    └── hello-compose/                  # 阶段 5：Compose 拉起 web + Redis
 ```
 
 ---
@@ -27,5 +29,5 @@ docker/
 | **阶段 1** | **[镜像与容器基石](docs/01-image-and-container-basics.md)** | 理解镜像分层、容器生命周期、`run` 与 `start` 边界、Tag 策略、Alpine 原理 | ✅ 已完成并沉淀 |
 | **阶段 2** | **[数据持久化 (Storage & Volume)](docs/02-storage-and-volumes.md)** | 搞懂为什么删容器数据会丢、命名卷 vs Bind、匿名卷、挂卷与应用落盘是两件事 | ✅ 已完成并沉淀 |
 | **阶段 3** | **[网络通信 (Networking)](docs/03-container-networking.md)** | localhost 边界、`-p` 内外端口、自定义网络 DNS、bridge 类比与网络隔离 | ✅ 已完成并沉淀 |
-| **阶段 4** | **Dockerfile 镜像构建** | 编写高质量 Dockerfile、层缓存优化技巧、Alpine/Slim 选型踩坑与规避 | ⏳ 规划中 |
-| **阶段 5** | **Docker Compose 编排** | 用声明式配置替代冗长的 run 命令，一键拉起「Redis + RabbitMQ + Web 业务应用」 | ⏳ 规划中 |
+| **阶段 4** | **[Dockerfile 镜像构建](docs/04-dockerfile-and-images.md)** | 指令含义、ENTRYPOINT/CMD、分层缓存、`EXPOSE`/`-p`/`-P`、构建上下文 | ✅ 已完成并沉淀 |
+| **阶段 5** | **[Docker Compose 编排](docs/05-docker-compose.md)** | 项目/服务/容器、build vs image、网络与卷、external、Portainer 对应 | ✅ 已完成并沉淀 |
