@@ -184,25 +184,120 @@ ENTRYPOINT ["python"]
 | `docker run 镜像 其它...` | **整段换成**其它 | 其它变成 **ENTRYPOINT 的参数** |
 | 换掉入口程序 | 直接写在 run 后面即可 | 需要 `--entrypoint` |
 
-入门镜像只用 `CMD` 完全够；看到官方镜像里的 `ENTRYPOINT`，按「固定程序 + 可换参数」理解即可。
+#### 设计本意：为何两个都存在？
+
+官方心智是**组合拳**，不是后来误用转正：
+
+| 指令 | 本意 |
+| :--- | :--- |
+| **ENTRYPOINT** | 容器的**入口**（固定可执行文件 / 入口脚本） |
+| **CMD** | 入口的**默认参数**（可被 `docker run` 后面替换） |
+
+常见「更完整」的官方镜像写法：
+
+```dockerfile
+ENTRYPOINT ["docker-entrypoint.sh"]   # 钉子：总是先走这个脚本
+CMD ["redis-server"]                  # 默认参数：没额外参数时跑服务
+# 实际 ≈ docker-entrypoint.sh redis-server
+# docker run 镜像 redis-cli PING → 仍走脚本，只换后面参数
+```
+
+同时允许**只用其中一个**写成完整启动命令（都是一等公民简写）：
+
+- 业务 App：常只写 `ENTRYPOINT`（防随手覆盖主进程）
+- 简单 Demo：只写 `CMD` 最省事
+- 工具型镜像：ENTRYPOINT 脚本 + CMD 默认参数
+
+#### 变量展开靠 shell，不靠选 ENTRYPOINT
+
+| 写法 | 会不会展开 `${serverPath}` |
+| :--- | :--- |
+| `CMD ["node", "${serverPath}"]` | ❌ exec 无 shell |
+| `ENTRYPOINT ["node", "${serverPath}"]` | ❌ 同样不会 |
+| `CMD ["sh","-c","node ${serverPath}"]` | ✅ |
+| `ENTRYPOINT ["sh","-c","node ${serverPath}"]` | ✅ |
+
+公司业务镜像常见：
+
+```dockerfile
+ENV serverPath=./projects/app/server.js
+ENTRYPOINT ["sh","-c","node --max-old-space-size=4096 ${serverPath}"]
+```
+
+- 用 `ENTRYPOINT`：钉死「起来就跑 Node 服务」  
+- 用 `sh -c`：展开环境变量（与是不是 ENTRYPOINT 无关）
+
+入门只用 `CMD` 完全够；读生产 Dockerfile 时按上面三种风格辨认即可。
 
 ### 7. `ENV` / `ARG`
 
 ```dockerfile
-ARG PORT_DEFAULT=8000          # 仅 build 时
-ENV PORT=8000                  # 写入镜像，容器内可读
+ARG PORT_DEFAULT=8000          # 仅 build 时；可 --build-arg 传入
+ENV PORT=8000                  # 写入镜像，容器运行时可读
 ```
 
-`app.py` 里 `os.environ.get("PORT", "8000")` 读的就是运行时环境变量；  
-`docker run -e PORT=9000` 可覆盖 `ENV`。
+- **`ARG`**：构建参数，通常由 CI / `docker build --build-arg KEY=val` 动态传入；可有默认值 `ARG X=unknown`。  
+- **`ENV`**：写入镜像；`docker run -e` 可再覆盖。  
+- `ARG` **不会**自动进运行容器；要运行时可读，需赋给 `ENV`。
 
-### 8. `EXPOSE` — 再强调一次
+#### 多阶段里 ARG 不跨阶段继承
+
+每个 `FROM` 是独立阶段。下一阶段还要用同一个构建参数，必须**再声明一次**：
+
+```dockerfile
+ARG proxy                 # 常写在阶段内；给本阶段 RUN 用
+
+FROM xxx AS builder
+ARG proxy                 # 新阶段要再用，再写一遍
+RUN ...
+
+FROM yyy AS runner
+ARG proxy
+RUN ...
+```
+
+写在**第一个 `FROM` 之前**的 `ARG`（如 `ARG DEPS_IMAGE`）主要给 `FROM ${DEPS_IMAGE}` 用；进阶段内的 `RUN`/`ENV` 仍要在该阶段再 `ARG` 一次。
+
+```dockerfile
+ARG DEPS_IMAGE
+FROM ${DEPS_IMAGE} AS maindeps   # 值来自：docker build --build-arg DEPS_IMAGE=...
+```
+
+### 8. `USER` 与 `chown`
+
+```dockerfile
+RUN addgroup --system --gid 1001 nodejs
+RUN adduser --system --uid 1001 nextjs
+RUN chown -R nextjs:nodejs /app/data   # Linux：用户:组
+USER nextjs                            # 之后进程不以 root 跑
+```
+
+`COPY --chown=nextjs:nodejs ...` 是同一套 `用户:组` 写法，拷贝时直接指定属主。
+
+### 9. `EXPOSE` — 再强调一次
 
 - 声明「容器内打算听的端口」。
 - **不**自动做宿主机映射。
 - 配合 `docker run -P`：按 `EXPOSE` 把容器口映射到**随机**宿主机口。
 - 显式 `-p 宿主机:容器` 时以 `-p` 为准，与有无 `EXPOSE` 无关。
 - 进程真正监听的端口仍由程序 / `ENV` 决定，须与映射的**容器侧端口**一致。
+
+### 10. 多阶段构建：`FROM ... AS 名字`
+
+```dockerfile
+FROM xxx AS mainDeps     # 阶段1：装依赖
+FROM yyy AS builder      # 阶段2：编译
+FROM zzz AS runner       # 阶段3：最终运行镜像（默认只保留最后一阶段）
+
+COPY --from=mainDeps /app/node_modules/foo ./node_modules/foo
+COPY --from=builder  /app/.next/standalone /app/
+```
+
+- **`AS 名字`**：给该阶段起名；引用处是后面的 **`COPY --from=名字`**（也可用 `--from=0` 按序号，不推荐）。  
+- 阶段之间**文件系统不自动继承**，要靠 `COPY --from=` 显式拷需要的产物。  
+- 目的：最终镜像不含编译器/完整 dev 依赖 → 更小、更安全；依赖安装与业务编译可拆开缓存（公司常再拆成「依赖镜像 Dockerfile」+「业务 build Dockerfile」）。
+
+读生产文件时顺着 `mainDeps → builder → runner` 看数据流即可，不必一开始就会写。
 
 ---
 
@@ -284,12 +379,13 @@ docker push registry.example.com/team/hello:1.0
 | 优先级 | 指令 |
 | :--- | :--- |
 | 必会 | `FROM` `WORKDIR` `COPY` `RUN` `CMD` `ENV` `EXPOSE` |
-| 常用 | `ARG` `USER` `.dockerignore` 习惯 |
-| 稍后 | `ENTRYPOINT` 细合成、多阶段 `FROM ... AS build`、`HEALTHCHECK` |
+| 常用 | `ARG` `USER` `ENTRYPOINT`（读生产镜像） `.dockerignore` |
+| 读公司文件 | 多阶段 `FROM ... AS` + `COPY --from=`、`ARG` 跨阶段再声明 |
+| 稍后 | `HEALTHCHECK`、Buildx 多架构 |
 | 慎用/少用 | `ADD`（无必要不用）、镜像内盲目 `VOLUME` |
 
 ---
 
 ## 九、 与下一阶段的衔接
 
-会写 Dockerfile 之后，用 **Compose** 把「build 应用 + 拉 Redis + 同一 network + 卷」写成一份 YAML，避免重复手打 `docker run`。
+会写 / 会读 Dockerfile 之后，用 **Compose** 把「build 应用 + 拉 Redis + 同一 network + 卷」写成一份 YAML，避免重复手打 `docker run`。

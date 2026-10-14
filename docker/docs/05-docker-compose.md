@@ -195,50 +195,120 @@ redis:
 
 ---
 
-## 九、 `exec` vs `run`（易混）
+## 九、 `command` 与 `restart`
 
-| 命令 | 含义 |
+### 1. `command` ≈ 覆盖镜像的 `CMD`
+
+```yaml
+redis:
+  image: redis:7-alpine
+  command: ["redis-server", "--appendonly", "yes"]
+```
+
+- 不写 `command`：用镜像默认启动，Redis **照样能跑**。  
+- 写上：改启动参数（这里打开 AOF，方便练习卷持久化）。  
+- 有 `ENTRYPOINT` 时，Compose 的 `command` 多半是换「传给入口的参数」（同 Dockerfile 里 CMD 与 ENTRYPOINT 的关系）。
+
+### 2. `restart` 可选值
+
+| 值 | 含义 |
 | :--- | :--- |
-| `docker compose exec redis redis-cli PING` | 进**已在跑的** redis 容器执行 |
-| `docker compose run --rm redis redis-cli -h redis PING` | **再临时新建**一个参照 redis 配置的容器；DNS 名 `redis` 仍指向长期那个 service |
+| `no` | 不自动重启（默认） |
+| `always` | 总是重启；手动 stop 后，引擎重启仍可能再拉起 |
+| `unless-stopped` | 总是重启，但**手动停过**后引擎重启不再拉起 |
+| `on-failure` / `on-failure:N` | 仅异常退出（非 0）时重启；可限次数 |
 
-已有 service 时查活优先用 **`exec`**，避免误以为「又起了一个同名服务」。
+本地练手常用 `unless-stopped` 或省略。
 
 ---
 
-## 十、 常用命令
+## 十、 项目范围命令：`compose ps` / `compose exec`
+
+Compose 子命令相对「裸 docker」多半是**范围缩到当前项目**，并用 **service 名**代替容器 ID。
+
+| | 裸 Docker | Compose |
+| :--- | :--- | :--- |
+| 列表 | `docker ps`：引擎上**全部**容器；有 NAMES 列 | `docker compose ps`：仅**本项目**；另有 **Service** 列（`web`/`redis`） |
+| 进容器执行 | `docker exec -it <容器名或ID> ...` | `docker compose exec <服务名> ...` |
+
+```bash
+docker compose exec redis redis-cli PING   # 推荐：按服务名
+docker exec -it hello-compose-redis-1 redis-cli PING
+```
+
+### `exec` vs `run`
+
+| 命令 | 含义 |
+| :--- | :--- |
+| `docker compose exec redis redis-cli PING` | 进**已在跑的** redis 容器 |
+| `docker compose run --rm redis ...` | **临时再起**一个参照 redis 配置的容器 |
+
+已有 service 时查活优先 **`exec`**。
+
+### 排障：`redis-cli` 必须进 redis 容器
+
+| 容器 | 有没有 `redis-cli` |
+| :--- | :--- |
+| **redis**（`redis:7-alpine`） | 有 |
+| **web**（Python 应用镜像） | **无**（只有 Python 的 redis 库） |
+
+进错 web 再跑 `redis-cli` 会失败；用 `compose exec redis` 可避免抄错 ID。  
+容器 recreate 后短 ID 会变，更不要依赖手抄 ID。
+
+查键 / 看落盘文件：
+
+```bash
+docker compose exec redis redis-cli GET hello:hits
+docker compose exec redis ls -la /data          # AOF/RDB 等（二进制，日常仍以 cli 查数据为主）
+```
+
+---
+
+## 十一、 常用命令
 
 ```bash
 cd docker/demos/hello-compose
 
 docker compose up -d --build   # 后台启动；有 Dockerfile 变更时重建
-docker compose ps              # 当前项目容器
-docker compose config --services   # YAML 里定义了哪些 service
+docker compose ps              # 当前项目容器 + Service 名
+docker compose config --services
 docker compose logs -f web
 docker compose exec redis redis-cli PING
 docker compose down            # 停并删容器/默认网；默认保留命名卷
 # docker compose down -v       # 连卷一起删（慎用）
 ```
 
-查看本 demo 实际资源示例：
+本 demo 资源量级：
 
 ```text
-网络:  hello-compose_default
-卷:    hello-compose_redis-data
-容器:  hello-compose-web-1 / hello-compose-redis-1
-镜像:  hello-compose-web / redis:7-alpine
+项目/栈:  hello-compose（Compose 称 project；Portainer 常显示为 Stack）
+网络:     hello-compose_default（1）
+卷:       hello-compose_redis-data（1；YAML 里写 redis-data，默认加项目前缀）
+容器:     web + redis（2）
+镜像:     hello-compose-web + redis:7-alpine（2）
 ```
 
 ---
 
-## 十一、 进阶清单（读公司文件够用，可稍后深挖）
+## 十二、 结业练习小结（hello-compose）
+
+整体是**编排两个服务**，不是打成一个安装包：
+
+- **web**：对外 `8000`；`environment` 注入 `REDIS_HOST=redis`（服务名 DNS，不是宿主机全局变量）。  
+- **redis**：不映射宿主机端口；仅项目网络内给 web 用；数据进**命名卷**。  
+- web 处理 HTTP，需要时连 redis（本 demo 用访问计数 `hello:hits`）。  
+- `depends_on` 只管大致启动顺序；`command` 开 AOF 为练习持久化。
+
+验证闭环：`curl` 见 `hits` 递增 → `down` 再 `up` 计数仍在（未 `down -v`）→ 可选把 `REDIS_HOST` 改成 `localhost` 看 503，改回 `redis` 恢复。
+
+---
+
+## 十三、 进阶清单（读公司文件够用，可稍后深挖）
 
 | 配置 / 能力 | 作用 |
 | :--- | :--- |
 | `depends_on` | 启动顺序；**不保证**依赖已「就绪」 |
-| `restart: unless-stopped` | 重启策略 |
 | `.env` + `${VAR}` | 端口、tag、密钥等外置配置 |
-| `command` / `entrypoint` | 覆盖镜像默认启动 |
 | `healthcheck` | 健康检查；可配合 depends_on 的 `service_healthy` |
 | `compose.override.yml` | 本地覆盖（常不提交） |
 | `profiles` | 按场景只启动部分服务 |
@@ -246,7 +316,7 @@ docker compose down            # 停并删容器/默认网；默认保留命名�
 
 ---
 
-## 十二、 阶段结论（够用版）
+## 十四、 阶段结论（够用版）
 
 已掌握：
 
@@ -254,6 +324,7 @@ docker compose down            # 停并删容器/默认网；默认保留命名�
 2. `build` / `image`、`ports`、`environment`、命名卷声明、默认网与服务名 DNS。  
 3. 显式 `networks` / `volumes` 与 `external: true`（资源是否本项目创建）。  
 4. 对外暴露靠 `ports`（及 bind），与 `external` 无关。  
-5. 常用 `up` / `down` / `ps` / `logs` / `exec`，以及 Portainer 上 Stack / Container / Image 的对应关系。
+5. `command` / `restart`、`compose ps|exec` 与裸 docker 的范围差异。  
+6. web 真正连 redis 的结业闭环，以及 Portainer 上 Stack / Container / Image 的对应关系。
 
-Docker 学习路线中的「基石」到此可告一段落；后续可用 Compose 快速搭 Redis / RabbitMQ / 自研服务做业务练习。
+后续学系统设计时，反复「Compose 起栈 → 写业务 → 排障」即可把 Docker 练熟，不必再整本刷运维向教程。
